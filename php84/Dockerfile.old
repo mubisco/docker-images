@@ -1,0 +1,106 @@
+FROM debian:bookworm-slim as first_steps
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Instalación de paquetería básica
+RUN /bin/sh -c set -eux; apt update && \
+    apt install -y wget lsb-release && \
+    wget -O /etc/apt/trusted.gpg.d/php.gpg https://packages.sury.org/php/apt.gpg && \
+    echo "deb https://packages.sury.org/php/ $(lsb_release -sc) main" | tee /etc/apt/sources.list.d/php.list && \
+    apt update && \
+    apt install -y apt-transport-https \
+      ca-certificates \
+      curl \
+      dnsutils \
+      iputils-ping \
+      git \
+      libxrender1 \
+      nano \
+      neovim \
+      strace \
+      telnet \
+      zip \
+      zsh
+
+FROM first_steps as packages
+
+# Instalar Binario de Wkhtm2Pdf
+RUN wget https://github.com/wkhtmltopdf/packaging/releases/download/0.12.6.1-3/wkhtmltox_0.12.6.1-3.bookworm_amd64.deb && \
+    apt install -y ./wkhtmltox*bookworm_amd64.deb && rm ./wkhtmltox*bookworm_amd64.deb
+
+# Instalar php y dependencias
+RUN apt install -y php8.2 \
+      php8.2-cli \
+      php8.2-fpm \
+      php8.2-amqp \
+      php8.2-bcmath \
+      php8.2-curl \
+      php8.2-gd \
+      php8.2-http \
+      php8.2-intl \
+      php8.2-mbstring \
+      php8.2-memcached \
+      php8.2-mysqli \
+      php8.2-raphf \
+      php8.2-soap \
+      php8.2-xdebug \
+      php8.2-xml \
+      php8.2-zip
+
+FROM packages as php_tuning
+#Insertamos nuestras reglas personalizadas de xdebug
+COPY ./xdebug-getlife.ini /etc/php/8.2/mods-available/xdebug.ini
+
+#Límite de memoría del contenedor de docker
+RUN echo 'memory_limit = 512M' >> /etc/php/8.2/fpm/conf.d/docker-php-ram-limit.ini
+
+#Habilitamos composer para ser usado como root en caso de ser necesario
+ENV COMPOSER_ALLOW_SUPERUSER=1
+#Instalación de composer
+COPY --from=composer:latest /usr/bin/composer /usr/local/bin/composer
+
+#Instalación de phpunit y symfony
+RUN /bin/sh -c set -eux; mkdir -p /usr/local/bin/ \
+  && curl -k -L https://phar.phpunit.de/phpunit-10.phar -o /usr/local/bin/phpunit \
+  && chmod +x /usr/local/bin/phpunit  \
+  && curl -sS https://get.symfony.com/cli/installer | bash \
+  && mv /root/.symfony5/bin/symfony /usr/local/bin/symfony
+
+#Instalación de configuración de php
+RUN mkdir -p /etc/php/8.2/fpm
+COPY ./php.ini /etc/php/8.2/cli/conf.d/custom-php.ini
+COPY ./zz-docker.conf /etc/php/8.2/fpm/conf.d/custom-php.ini
+
+FROM php_tuning as shell_tuning
+#Creación de usuario gfuser con shell zsh
+RUN adduser \
+  --disabled-password \
+  --uid=1000 \
+  --shell=/bin/zsh gfuser
+
+# Establecemos directorio de trabajo y usuario activo
+WORKDIR /app
+USER gfuser
+
+#Instalación de oh-my-zsh para el usuario gfuser
+RUN sh -c "$(curl -fsSL https://raw.github.com/robbyrussell/oh-my-zsh/master/tools/install.sh)"
+
+# Aliases
+RUN echo "\
+  alias sf='symfony' \
+  alias sfc='symfony console' \
+  alias sfca='php /app/apps/Admin/bin/console' \
+  alias sfcb='php /app/apps/Broker/bin/console' \
+  alias sfcc='php /app/apps/Customer/bin/console' \
+  alias sfci='php /app/apps/Api/bin/console' \
+  alias scc='php /app/apps/Admin/bin/console cache:clear; php /app/apps/Customer/bin/console cache:clear; php /app/apps/Broker/bin/console cache:clear; php /app/apps/Api/bin/console cache:clear' \
+  alias sft='php /app/vendor/bin/phpunit' \
+  alias v='nvim' \
+  alias besa='APP_ENV=test php -d memory_limit=-1 vendor/bin/behat --config behat.yml-es.dist -p admin' \
+  alias besb='APP_ENV=test php -d memory_limit=-1 vendor/bin/behat --config behat.yml-es.dist -p broker' \
+  alias besc='APP_ENV=test php -d memory_limit=-1 vendor/bin/behat --config behat.yml-fr.dist -p customer' \
+  alias bfrb='APP_ENV=test php -d memory_limit=-1 vendor/bin/behat --config behat.yml-fr.dist -p broker' \
+  alias bfrc='APP_ENV=test php -d memory_limit=-1 vendor/bin/behat --config behat.yml-fr.dist -p customer' \
+  alias bitb='APP_ENV=test php -d memory_limit=-1 vendor/bin/behat --config behat.yml-it.dist -p broker' \
+  alias bitc='APP_ENV=test php -d memory_limit=-1 vendor/bin/behat --config behat.yml-it.dist -p customer' \
+  " >> /home/gfuser/.zshrc
