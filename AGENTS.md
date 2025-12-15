@@ -6,8 +6,18 @@ This repository contains Docker image configurations for development environment
 ## Directory Structure
 
 ### `/node`
-Contains a Node.js development environment Docker image based on Alpine Linux.
+Contains Node.js development environment Docker images based on Alpine Linux.
 
+#### `/node/22.21.0` (LTS - Jod)
+**Key Features:**
+- Base: `node:22.21.0-alpine`
+- Includes development tools: neovim, git, curl, zsh
+- Pre-configured with oh-my-zsh
+- Vite pre-installed globally
+- Default port: 3000 (configurable via ARG)
+- Runs as non-root `node` user
+
+#### `/node/23.7.0`
 **Key Features:**
 - Base: `node:23.7.0-alpine`
 - Includes development tools: neovim, git, curl, zsh
@@ -33,10 +43,15 @@ Contains a PHP 8.4 development environment Docker image based on Alpine Linux.
 
 ### Building Images
 
-**Node.js image:**
+**Node.js images:**
 ```bash
-cd node
-docker build -t your-node-image:latest .
+# LTS version (recommended)
+cd node/22.21.0
+docker build -t your-node-image:22.21.0-lts .
+
+# Latest version
+cd node/23.7.0
+docker build -t your-node-image:23.7.0 .
 ```
 
 **PHP 8.4 image:**
